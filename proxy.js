@@ -15,6 +15,7 @@ async function handleRequest(request) {
   //获取服务器hostname,Protocol,Port
   let srvurl=new URL(request.url);
   let srvHostname = srvurl.hostname;
+  let srvHost = srvurl.host;
   let reqHostname = null;
   let reqProtocol = null;
   let reqPort = null;
@@ -23,7 +24,8 @@ async function handleRequest(request) {
   let refHost = null;
   let havereqPort = true;
   let enableReferRewrite = true;
-  let enableUrlRewrite = true;
+  let enableUrlRewrite = false;
+  let enableCookieRewrite = true;
   //取域名第一个斜杠后的所有信息为代理链接
   let url = request.url.substr(8);
   url = url.substr(url.indexOf('/') + 1);
@@ -101,6 +103,14 @@ async function handleRequest(request) {
         reqReferer="";
       }
     }
+    //重写cookie路径和域
+  const send_cookie = reqHeaders.get('cookie');
+  if (send_cookie !== null &&
+      enableCookieRewrite == true) {
+        let text = send_cookie.replace(new RegExp("Path=/"+reqHostname+'/', 'g'), "Path=/");
+        text = text.replace(new RegExp("Domain="+srvHostname, 'g'), "Domain="+reqHostname);
+        reqHeaders.set('cookie', text);
+      }
   
     //跟踪跳转 ref: https://developers.cloudflare.com/workers/runtime-apis/request#requestinit
     const reqInit = {
@@ -139,6 +149,7 @@ async function handleRequest(request) {
   myHeaders.delete('content-security-policy');
   myHeaders.delete('content-security-policy-report-only');
   myHeaders.delete('clear-site-data');
+
   //重写返回链接
   let response_clone = response.clone();
   let original_text = null;
@@ -149,20 +160,20 @@ async function handleRequest(request) {
   //替换html链接
   const replace_html = {
     'href="/': 'href="/'+reqHostname+'/',
-    'href="https://': 'href="https://'+srvHostname+'/',
-    'href="http://': 'href="https://'+srvHostname+'/http://',
+    'href="https://': 'href="https://'+srvHost+'/',
+    'href="http://': 'href="https://'+srvHost+'/http://',
     'src="//': 'src="'+reqProtocol+'//',
     'src="/': 'src="'+reqProtocol+'//'+reqHostname+'/',
     'srcset="/': 'srcset="/'+reqHostname+'/',
-    'src="https://': 'src="https://'+srvHostname+'/',
-    'src="http://': 'src="https://'+srvHostname+'/http://',
-    'content="https://': 'content="https://'+srvHostname+'/',
+    'src="https://': 'src="https://'+srvHost+'/',
+    'src="http://': 'src="https://'+srvHost+'/http://',
+    'content="https://': 'content="https://'+srvHost+'/',
     'content="//': 'content="'+reqProtocol+'//',
     'content="/': 'content="/'+reqHostname+'/',
-    'url[(]https://': 'url(https://'+srvHostname+'/',
+    'url[(]https://': 'url(https://'+srvHost+'/',
     'url[(]"/': 'url("/'+reqHostname+'/',
     'url[(]/': 'url(/'+reqHostname+'/',
-    "src='//": "src='//"+srvHostname+'/',
+    "src='//": "src='//"+srvHost+'/',
     "src='/": "src='/"+reqHostname+'/',
     "u='/xjs/": "u='/"+reqHostname+"/xjs/",
     "var s='/": "var s='/"+reqHostname+"/",
@@ -212,6 +223,15 @@ async function handleRequest(request) {
   } else {
     original_text = response.body;
   }
+  
+  //替换cookie，支持登陆
+  const set_cookie = myHeaders.get('set-cookie');
+  if (set_cookie !== null &&
+      enableCookieRewrite == true) {
+        let text = set_cookie.replace(RegExp("Path=/", 'g'), "Path=/"+reqHostname+'/');
+        text = text.replace(RegExp("Domain="+reqHostname, 'g'), "Domain="+srvHostname);
+        myHeaders.set('set-cookie', text);
+      }
   
   return new Response(original_text, {
     status: response.status,
